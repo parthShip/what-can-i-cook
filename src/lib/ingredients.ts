@@ -1,8 +1,4 @@
 // "You have" vs "you still need", worked out from data rather than from the model.
-//
-// Both sides of the comparison are structured: the recipe's own ingredient rows as
-// they were ingested, and the words the user actually typed. The model is never
-// asked to do this — it cannot credit the user with an ingredient they never named.
 
 import type { Ingredient } from "@/lib/recipes";
 
@@ -25,7 +21,7 @@ export type Pantry = Map<string, string>;
 // Words that are never an ingredient: questions, verbs, containers, units, filler.
 const FILLER = new Set([
   "about", "actually", "all", "already", "also", "and", "any", "anything", "are",
-  "ask", "back", "best", "breakfast", "but", "can", "could", "cook", "cooked",
+  "ask", "back", "best", "breakfast", "but", "can", "could", "cook",
   "cooking", "could", "cup", "cups", "did", "dinner", "dish", "does", "each",
   "easiest", "easy", "eat", "else", "fast", "fastest", "few", "find", "first",
   "for", "freezer", "fresh", "fridge", "from", "get", "give", "gluten", "got",
@@ -43,6 +39,9 @@ const FILLER = new Set([
   "tbsp", "tsp", "today", "tonight", "two", "use", "using", "vegan",
   "vegetarian", "very", "want", "was", "way", "week", "were", "what", "when",
   "where", "which", "why", "will", "with", "without", "would", "you", "your",
+  "bake", "boil", "chop", "fold", "fry", "garnish", "grill", "grilled",
+  "knead", "marinate", "marinated", "reheat", "simmer", "simmered", "steam",
+  "stir", "whisk",
 ]);
 
 // Spelling and regional variants, plus pasta shapes, which a pantry treats as one

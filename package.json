@@ -7,6 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "build-corpus": "tsx scripts/build-corpus.ts",
     "db:push": "tsx --env-file-if-exists=.env.local scripts/db-push.ts",
     "ingest": "tsx --env-file-if-exists=.env.local scripts/ingest.ts",
@@ -44,6 +46,7 @@
     "postgres": "^3.4.9",
     "tailwindcss": "^4",
     "tsx": "^4.23.13",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.11"
   }
 }

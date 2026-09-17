@@ -38,9 +38,19 @@ const EXPLORATORY_PATTERNS = [
   /\b(?:recommend|feel like|in the mood)\b/i,
 ];
 
+// Whether the question needs verbatim step text in context — the same list temperature uses.
+export function needsFullSteps(query: string): boolean {
+  return PRECISE_PATTERNS.some((p) => p.test(query));
+}
+
+// Whether the user is asking for recipes other than the ones on screen.
+export function isExploratory(query: string): boolean {
+  return EXPLORATORY_PATTERNS.some((p) => p.test(query));
+}
+
 // Precise wins ties: "what can I use instead of butter, and how much?" has a right answer.
 export function temperatureFor(query: string): number {
-  if (PRECISE_PATTERNS.some((p) => p.test(query))) return PRECISE_TEMPERATURE;
-  if (EXPLORATORY_PATTERNS.some((p) => p.test(query))) return EXPLORATORY_TEMPERATURE;
+  if (needsFullSteps(query)) return PRECISE_TEMPERATURE;
+  if (isExploratory(query)) return EXPLORATORY_TEMPERATURE;
   return DEFAULT_TEMPERATURE;
 }
