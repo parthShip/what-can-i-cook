@@ -9,8 +9,7 @@ describe("buildPantry", () => {
     expect(terms(["i have eggs and spinach"])).toEqual(["egg", "spinach"]);
   });
 
-  // The measured blocker: "bake" was being stored as though the user owned it, which
-  // made every method question look like a new ingredient and suppressed reuse.
+  // "bake" was stored as an owned ingredient, so method questions read as new ones.
   it("does not treat a cooking verb as an ingredient", () => {
     expect(terms(["i have eggs and spinach", "how long do i bake it"])).toEqual([
       "egg",
@@ -21,10 +20,7 @@ describe("buildPantry", () => {
     }
   });
 
-  // These verb forms are also real ingredient names in the corpus, so filtering them
-  // would lose the user a genuine pantry item. Verified against all 2,000 recipes:
-  // "Baked beans", "hard-boiled eggs", "chopped tomatoes", "cooked rice", "fried tofu",
-  // "roast beef", "roasted peanuts", "seasoned rice vinegar", "sliced apples".
+  // These verb forms are also real ingredient names ("baked beans", "cooked rice").
   it("keeps verb forms that name real ingredients", () => {
     expect(terms(["i have baked beans"])).toContain("baked bean");
     expect(terms(["i have chopped tomatoes"])).toContain("chopped tomato");
@@ -40,8 +36,7 @@ describe("buildPantry", () => {
 });
 
 describe("comparePantry", () => {
-  // The regression that matters: filtering verbs must not stop a real ingredient
-  // from being credited. Mirrors the fixture in scripts/check.ts step 5.
+  // Filtering verbs must not stop a real ingredient from being credited.
   it("still credits exactly the ingredients the user named", () => {
     const fixture = [
       { item: "eggs", quantity: "8 large" },

@@ -57,11 +57,7 @@ straight from the same retrieved data you can see. Write the part a card cannot.
 `.trim();
 
 // Wraps retrieved recipes in delimiters, so it is unambiguous where trusted context ends.
-//
-// `full` uses the stored `content` column, which is what was embedded. `brief` renders
-// from the same row's `metadata` and drops the step text: two-thirds of the block, and
-// text the ABSOLUTE RULES never let the model restate. Defaults to `full` so a caller
-// that has not thought about tiers gets the safe, complete rendering.
+// `full` is the stored `content`; `brief` re-renders from metadata without the steps.
 export function buildContextBlock(
   matches: MatchedRecipe[],
   tier: ContextTier = "full",

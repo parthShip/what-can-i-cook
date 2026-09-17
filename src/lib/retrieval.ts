@@ -38,15 +38,8 @@ export async function searchRecipes(
 }
 
 // The rows behind a previous turn's slugs, for a follow-up that needs no new search.
-//
-// This is the trust boundary for Phase 2 of the RAG design: the slugs come from the
-// request body, but every byte of recipe text returned here comes from Postgres. A
-// client cannot put a fabricated recipe into the grounded context, only name a
-// different real one.
-//
-// Returns rows in the order the sources were given — which was similarity order — and
-// carries each source's similarity forward, so the rendered context block is
-// byte-identical to the previous turn's and Gemini's prefix cache can fire.
+// Slugs come from the request body; every byte of recipe text comes from Postgres.
+// Rows come back in the order given, carrying each source's similarity forward.
 export async function fetchRecipesBySlug(
   supabase: SupabaseClient,
   sources: PriorSource[],
@@ -69,8 +62,7 @@ export async function fetchRecipesBySlug(
 
   return sources.flatMap((source) => {
     const row = rows.get(source.slug);
-    // A slug with no row is a deleted recipe or a junk slug. Dropping it here lets the
-    // caller notice the short result and fall back to a real search.
+    // Dropped, so a short result tells the caller to fall back to a real search.
     if (!row) return [];
     return [
       {

@@ -10,8 +10,7 @@ import {
   type PriorSource,
 } from "@/lib/reuse";
 
-// Only the fields the code reads. The cast mirrors reality: this data arrives as
-// untrusted JSON, not as a well-formed ChatMessage.
+// Only the fields the code reads; this arrives as untrusted JSON, not a ChatMessage.
 function assistant(sources: unknown): ChatMessage {
   return {
     id: "a1",
@@ -166,8 +165,7 @@ describe("decideReuse", () => {
     expect(decision.reason).toBe("exploratory");
   });
 
-  // A question that is both precise and exploratory: the user wants alternatives,
-  // so exploratory has to win here even though the pantry is unchanged.
+  // Precise and exploratory at once: exploratory has to win, pantry unchanged.
   it("prefers fresh retrieval for a substitution question", () => {
     const decision = decideReuse({
       priorSources,
