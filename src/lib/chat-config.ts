@@ -38,16 +38,12 @@ const EXPLORATORY_PATTERNS = [
   /\b(?:recommend|feel like|in the mood)\b/i,
 ];
 
-// Steps and amounts are quoted verbatim, so these are also exactly the questions
-// that need the full step text in the retrieved context. Tier selection and
-// temperature therefore read the same list — two copies would drift apart, and a
-// drift would mean quoting steps the model was never given.
+// Whether the question needs verbatim step text in context — the same list temperature uses.
 export function needsFullSteps(query: string): boolean {
   return PRECISE_PATTERNS.some((p) => p.test(query));
 }
 
-// The user wants recipes other than the ones on screen, which means retrieval must
-// actually run even when their pantry has not changed.
+// Whether the user is asking for recipes other than the ones on screen.
 export function isExploratory(query: string): boolean {
   return EXPLORATORY_PATTERNS.some((p) => p.test(query));
 }

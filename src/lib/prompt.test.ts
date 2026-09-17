@@ -7,8 +7,7 @@ const MATCH: MatchedRecipe = {
   id: 1,
   slug: "spinach-feta-frittata",
   title: "Spinach Feta Frittata",
-  // Deliberately not what toChunk would produce: this proves the full tier uses the
-  // stored content column verbatim rather than re-rendering it.
+  // Not what toChunk would produce: proves the full tier uses stored content verbatim.
   content: "Recipe: Spinach Feta Frittata\nSteps: 1. Heat the oven to 180C.",
   metadata: {
     id: "1",

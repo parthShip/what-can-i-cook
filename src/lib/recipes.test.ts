@@ -43,8 +43,7 @@ const SPARSE: Recipe = {
   instructions: ["Simmer everything together for 25 minutes."],
 };
 
-// Steps of realistic length: the corpus averages eight instructions of roughly
-// ninety characters, and the whole point of the brief tier is what that costs.
+// Steps of realistic length: the corpus averages eight instructions of ~90 characters.
 const REALISTIC: Recipe = {
   ...FULL,
   instructions: [
@@ -59,9 +58,7 @@ const REALISTIC: Recipe = {
   ],
 };
 
-// The stored `content` column and every embedding were produced by this function.
-// Changing its output would silently decouple the corpus from its vectors, so the
-// expected string is written out in full rather than derived.
+// Written out in full, not derived: a change here decouples the corpus from its vectors.
 describe("toChunk", () => {
   it("renders the frozen ingest format", () => {
     expect(toChunk(FULL)).toBe(
@@ -111,9 +108,7 @@ describe("toBriefChunk", () => {
     expect(brief).toContain("Steps: none recorded for this recipe.");
   });
 
-  // FULL's three short steps are not representative: on that fixture the brief
-  // rendering is only ~8% smaller. The corpus mean is 64% smaller, so the saving
-  // is measured against a recipe with realistic step text.
+  // Measured on realistic step text: the short fixture understates the saving.
   it("is substantially shorter than the full chunk", () => {
     expect(toBriefChunk(REALISTIC).length).toBeLessThan(toChunk(REALISTIC).length * 0.6);
     // Still smaller even on the unrepresentative short fixture.
@@ -127,8 +122,7 @@ describe("toBriefChunk", () => {
     expect(brief).not.toContain("Tip:");
   });
 
-  // Rule 3: the brief tier ships no steps, so it must not tell the model to read
-  // amounts out of steps it was never given.
+  // The brief tier ships no steps, so it must not point the model at them.
   it("does not point at steps below when there are none", () => {
     const brief = toBriefChunk(SPARSE);
     expect(brief).not.toContain("the steps below");

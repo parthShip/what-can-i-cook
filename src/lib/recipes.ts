@@ -42,14 +42,8 @@ export const EMBEDDING_MODEL = "gemini-embedding-001" as const;
 export const EMBEDDING_DIMENSIONS = 768 as const;
 
 // One recipe = one chunk, ingredients first because the user's query is an ingredient list.
-//
-// Two renderings, sharing every line but the method. `full` is what the ingest script
-// stored and embedded; `brief` drops the step text, which the system prompt forbids
-// the model to restate anyway and which the recipe card renders from its own data.
-//
-// The tier union is imported rather than redeclared, so the rendering and the metrics
-// row can never disagree about what tiers exist. It is a type-only import, erased at
-// compile time, so the ingest script gains no runtime dependency.
+// Both tiers share every line but the method: `full` is what was embedded, `brief` drops
+// the step text.
 function chunkLines(r: Recipe, tier: ContextTier): string[] {
   const ingredients = r.ingredients.map((i) => i.item).join(", ");
   const totalTime = r.prepTimeMinutes + r.cookTimeMinutes;
@@ -65,10 +59,7 @@ function chunkLines(r: Recipe, tier: ContextTier): string[] {
     .join(", ");
 
   // Some sources publish no measurements at all; say so rather than emitting blank amounts.
-  //
-  // The sentence has to differ by tier. On `full` the amounts really are further down
-  // this chunk; on `brief` there are no steps below, so promising them would point the
-  // model at text it was never given — exactly what ABSOLUTE RULE 3 forbids.
+  // The sentence differs by tier: on `brief` there are no steps below to point at.
   const measured = r.ingredients.filter((i) => i.quantity.trim());
   const noAmounts =
     tier === "full"
@@ -100,15 +91,12 @@ function chunkLines(r: Recipe, tier: ContextTier): string[] {
   ].filter(Boolean);
 }
 
-// The ingest format. Its output is what the `content` column holds and what every
-// stored embedding was computed from, so it must stay byte-identical — see the
-// golden test in recipes.test.ts.
+// The ingest format: what the `content` column holds, so it must stay byte-identical.
 export function toChunk(r: Recipe): string {
   return chunkLines(r, "full").join("\n");
 }
 
-// The same recipe with the method replaced by a pointer at the card. Roughly a third
-// of the tokens, and nothing the system prompt would have let the model say is lost.
+// The same recipe with the method replaced by a pointer at the card.
 export function toBriefChunk(r: Recipe): string {
   return chunkLines(r, "brief").join("\n");
 }

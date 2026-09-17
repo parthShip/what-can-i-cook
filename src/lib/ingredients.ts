@@ -39,8 +39,8 @@ const FILLER = new Set([
   "tbsp", "tsp", "today", "tonight", "two", "use", "using", "vegan",
   "vegetarian", "very", "want", "was", "way", "week", "were", "what", "when",
   "where", "which", "why", "will", "with", "without", "would", "you", "your",
-  "bake", "boil", "chop", "fold", "fry", "garnish", "grill", "grilled",  
-  "knead", "marinate", "marinated", "reheat", "simmer", "simmered", "steam", 
+  "bake", "boil", "chop", "fold", "fry", "garnish", "grill", "grilled",
+  "knead", "marinate", "marinated", "reheat", "simmer", "simmered", "steam",
   "stir", "whisk",
 ]);
 

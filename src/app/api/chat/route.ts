@@ -154,12 +154,11 @@ type AnswerOptions = {
   temperature: number;
   abortSignal: AbortSignal;
   sources: SourceRecipe[];
-  // Wall clock at the start of the request, so first-token latency is measured
-  // against the user's wait, not against this function's own start.
+  // Request start, so first-token latency is measured against the user's wait.
   startedAt: number;
 };
 
-// What actually happened, for the metrics row. All-null means no model answered.
+// What the turn cost, for the metrics row. All-null means no model answered.
 type AnswerOutcome = {
   modelId: string | null;
   modelIndex: number | null;
@@ -229,9 +228,7 @@ async function streamAnswer({
     if (textId) writer.write({ type: "text-end", id: textId });
 
     if (!failure) {
-      // `usage` and `providerMetadata` are PromiseLike on the result and are already
-      // settled once the stream is drained, so this adds no latency. Awaited only on
-      // the success path — on a failed stream they reject with the same error.
+      // Already settled once the stream is drained, so awaiting costs no latency.
       let usage: Awaited<typeof result.usage> | undefined;
       let providerMetadata: Awaited<typeof result.providerMetadata>;
       try {
@@ -299,18 +296,12 @@ export async function POST(req: Request) {
   const startedAt = Date.now();
 
   try {
-    // 2. What the user has is read off every turn they typed, not off the answer: a
-    //    pantry named three turns ago still counts for the recipe shown now. Built
-    //    before retrieval because the reuse decision turns on whether this turn
-    //    added anything to it.
+    // 2. Pantry from every user turn, built before retrieval because reuse depends on it.
     const priorTexts = userMessages.slice(0, -1).map(textOf);
     const pantryBefore = buildPantry(priorTexts);
     const pantry = buildPantry(userMessages.map(textOf));
 
-    // 3. A follow-up about the recipes already on screen needs no new search. Skipping
-    //    it saves the embedding request outright, and grounds the answer in the recipe
-    //    the user is actually asking about rather than in whatever "how long do I bake
-    //    it?" happens to embed near.
+    // 3. A follow-up about the recipes already on screen needs no new search.
     const decision = decideReuse({
       priorSources: priorSourcesFrom(messages),
       query,
@@ -328,9 +319,7 @@ export async function POST(req: Request) {
       try {
         const reuseStartedAt = Date.now();
         const rows = await fetchRecipesBySlug(getSupabaseAdmin(), decision.sources);
-        // A short result means a slug no longer resolves — a deleted recipe, or a
-        // crafted body. Fall through to a real search rather than answer from a
-        // partial context.
+        // A slug that no longer resolves: search rather than ground on a partial context.
         if (rows.length === decision.sources.length) {
           matches = rows;
           retrievalReused = true;
@@ -378,9 +367,7 @@ export async function POST(req: Request) {
     // 6. Temperature comes from the question: steps sample tighter than ideas.
     const temperature = temperatureFor(query);
 
-    // Steps go in only when the question needs them. Everything else the model is
-    // allowed to say is in the brief rendering, and the card shows the method either
-    // way — so on a plain ingredient turn this is a saving, not a trade-off.
+    // Step text goes in only when the question needs it; the card shows it either way.
     const contextTier: ContextTier = needsFullSteps(query) ? "full" : "brief";
 
     const sources: SourceRecipe[] = matches.map((m) => {
@@ -437,8 +424,7 @@ export async function POST(req: Request) {
           contextTier,
           candidateCount: matches.length,
           matchCount: matches.length,
-          // The prompt's rule 2 is what actually refuses, so this is the best signal
-          // available without parsing the model's prose: nothing was retrieved.
+          // Nothing retrieved is the closest signal to a refusal without parsing prose.
           refused: matches.length === 0,
           embedMs,
           retrieveMs,
