@@ -44,28 +44,6 @@ still missing. Ask it for something the cookbook doesn't have and it says so.
 
 **Quick tour:** [the one rule](#the-one-rule) · [quickstart](#quickstart) · [screenshots](#what-it-looks-like) · [try to break it](#try-to-break-it) · [how it works](#how-it-works) · [verifying it](#verifying-it-end-to-end) · [the corpus](#the-corpus) · [project layout](#project-layout)
 
-<details>
-<summary><b>For the GitHub sidebar — description and topics</b></summary>
-
-<br>
-
-Description:
-
-> 🍳 A RAG chatbot that recommends recipes from a 2,000-recipe cookbook and refuses to invent one. Next.js 16, Gemini, Supabase pgvector — all on free tiers.
-
-Topics: `rag` `retrieval-augmented-generation` `nextjs` `typescript` `pgvector` `supabase` `gemini` `vercel-ai-sdk` `llm` `chatbot` `embeddings` `tailwindcss`
-
-Apply both with:
-
-```bash
-gh repo edit --description "🍳 A RAG chatbot that recommends recipes from a 2,000-recipe cookbook and refuses to invent one. Next.js 16, Gemini, Supabase pgvector — all on free tiers." \
-  --add-topic rag --add-topic retrieval-augmented-generation --add-topic nextjs --add-topic typescript \
-  --add-topic pgvector --add-topic supabase --add-topic gemini --add-topic vercel-ai-sdk \
-  --add-topic llm --add-topic chatbot --add-topic embeddings --add-topic tailwindcss
-```
-
-</details>
-
 ## The one rule
 
 > If the retrieved recipes don't answer the question, say so. Never fill the gap.
