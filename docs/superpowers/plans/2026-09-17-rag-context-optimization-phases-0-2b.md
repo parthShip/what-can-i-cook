@@ -37,7 +37,7 @@ The spec was written before the installed type definitions were read. Four of it
 
 | File | Status | Responsibility |
 | --- | --- | --- |
-| `vitest.config.ts` | create | Test runner config; maps the `@/` path alias |
+| `vitest.config.mts` | create | Test runner config; maps the `@/` path alias |
 | `package.json` | modify | `vitest` devDependency, `test` / `test:watch` scripts |
 | `src/lib/metrics.ts` | create | The `TurnMetrics` row, cached-token extraction, `[metrics]` line formatting. Pure except `logTurnMetrics`. |
 | `src/lib/metrics.test.ts` | create | Tests for the above |
@@ -65,7 +65,7 @@ Decisions locked here: **all classification and projection logic lives in `src/l
 There is no test framework in this repo. Phase 1 refactors the regex list behind `temperatureFor` into a shared predicate, so the current behaviour must be pinned **before** that refactor, not after.
 
 **Files:**
-- Create: `vitest.config.ts`
+- Create: `vitest.config.mts`
 - Create: `src/lib/chat-config.test.ts`
 - Modify: `package.json`
 
@@ -76,12 +76,25 @@ There is no test framework in this repo. Phase 1 refactors the regex list behind
 - [ ] **Step 1: Install Vitest**
 
 ```bash
-npm install -D vitest@^5.0.1
+npm install -D vitest@^4.1.11
 ```
+
+**Not vitest 5.** Vitest 5 declares `@types/node@^22.0.0 || >=24.0.0` as a peer, while
+this repo pins `@types/node@^20`. Installing 5 needs `--force`, which leaves a tolerated
+peer conflict in the lockfile and breaks a clean `npm install` for anyone else. Vitest
+4.1.11 accepts `^20.0.0 || ^22.0.0 || >=24.0.0` and installs cleanly; the config and API
+used below are identical across both majors.
+
+The install must succeed with no `--force` and no `--legacy-peer-deps`. If it does not,
+stop and report rather than forcing it.
 
 - [ ] **Step 2: Create the runner config**
 
-Create `vitest.config.ts`:
+Create `vitest.config.mts`. The `.mts` extension is required, not cosmetic: this
+`package.json` has no `"type": "module"`, so a `.ts` config is loaded as CommonJS and
+Vite warns that the `import` / `import.meta.url` syntax below is unsupported by the
+`configLoader: 'native'` mode that becomes the default in a future Vite major.
+`tsconfig.json` already includes `**/*.mts`.
 
 ```ts
 import { fileURLToPath } from "node:url";
@@ -160,12 +173,12 @@ describe("temperatureFor", () => {
 - [ ] **Step 5: Run the tests to verify they pass against today's code**
 
 Run: `npm test`
-Expected: PASS, 4 tests. These describe existing behaviour, so they must pass immediately. A failure here means one of the assertions misreads the current regexes — fix the assertion, not `chat-config.ts`.
+Expected: PASS, 4 tests, and **no Vite config warning anywhere in the output**. These tests describe existing behaviour, so they must pass immediately. A failure here means one of the assertions misreads the current regexes — fix the assertion, not `chat-config.ts`.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add vitest.config.ts package.json package-lock.json src/lib/chat-config.test.ts
+git add vitest.config.mts package.json package-lock.json src/lib/chat-config.test.ts
 git commit -m "test: add vitest and pin current temperature classification
 
 Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
