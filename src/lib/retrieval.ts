@@ -5,6 +5,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { MatchedRecipe, Recipe } from "./recipes";
+import type { PriorSource } from "./reuse";
 
 export type SearchOptions = {
   threshold: number;
@@ -34,4 +35,44 @@ export async function searchRecipes(
     metadata: row.metadata as Recipe,
     similarity: row.similarity as number,
   }));
+}
+
+// The rows behind a previous turn's slugs, for a follow-up that needs no new search.
+// Slugs come from the request body; every byte of recipe text comes from Postgres.
+// Rows come back in the order given, carrying each source's similarity forward.
+export async function fetchRecipesBySlug(
+  supabase: SupabaseClient,
+  sources: PriorSource[],
+): Promise<MatchedRecipe[]> {
+  if (sources.length === 0) return [];
+
+  const { data, error } = await supabase
+    .from("recipes")
+    .select("id, slug, title, content, metadata")
+    .in(
+      "slug",
+      sources.map((s) => s.slug),
+    );
+
+  if (error) throw error;
+
+  const rows = new Map<string, Record<string, unknown>>(
+    (data ?? []).map((row: Record<string, unknown>) => [row.slug as string, row]),
+  );
+
+  return sources.flatMap((source) => {
+    const row = rows.get(source.slug);
+    // Dropped, so a short result tells the caller to fall back to a real search.
+    if (!row) return [];
+    return [
+      {
+        id: row.id as number,
+        slug: row.slug as string,
+        title: row.title as string,
+        content: row.content as string,
+        metadata: row.metadata as Recipe,
+        similarity: source.similarity,
+      },
+    ];
+  });
 }
