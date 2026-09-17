@@ -19,6 +19,7 @@
 - **Never trust request-body recipe content.** Client-supplied `messageMetadata` is used for slug strings and similarity numbers only; all recipe text is re-fetched from Postgres.
 - **Read the guide in `node_modules/next/dist/docs/` before touching route code** (per `AGENTS.md`). Already done for this plan — findings in "Version corrections" below.
 - Package versions are pinned as installed; do not upgrade `ai`, `@ai-sdk/google` or `@ai-sdk/react` as part of this plan.
+- **Commit messages carry no AI attribution.** No co-author trailer, no "Generated with" line, no mention of Claude or any model anywhere in the message. Each commit describes the change on its own terms.
 
 ## Version corrections to the spec
 
@@ -179,9 +180,7 @@ Expected: PASS, 4 tests, and **no Vite config warning anywhere in the output**. 
 
 ```bash
 git add vitest.config.mts package.json package-lock.json src/lib/chat-config.test.ts
-git commit -m "test: add vitest and pin current temperature classification
-
-Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
+git commit -m "test: add vitest and pin current temperature classification"
 ```
 
 ---
@@ -394,9 +393,7 @@ Expected: PASS, 7 tests.
 
 ```bash
 git add src/lib/metrics.ts src/lib/metrics.test.ts
-git commit -m "feat: add per-turn metrics row for RAG cost measurement
-
-Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
+git commit -m "feat: add per-turn metrics row for RAG cost measurement"
 ```
 
 ---
@@ -693,9 +690,7 @@ git add src/app/api/chat/route.ts
 git commit -m "feat: log per-turn token, model and latency metrics
 
 Establishes the pre-optimization baseline. Also removes the deprecated
-runtime export: 'nodejs' is the default in Next 16.
-
-Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
+runtime export: 'nodejs' is the default in Next 16."
 ```
 
 ---
@@ -815,9 +810,7 @@ Expected: PASS. The Task 1 characterization tests must still pass unchanged — 
 
 ```bash
 git add src/lib/chat-config.ts src/lib/chat-config.test.ts
-git commit -m "refactor: extract needsFullSteps and isExploratory predicates
-
-Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
+git commit -m "refactor: extract needsFullSteps and isExploratory predicates"
 ```
 
 ---
@@ -1081,9 +1074,7 @@ git add src/lib/recipes.ts src/lib/recipes.test.ts
 git commit -m "feat: add brief recipe chunk rendering without step text
 
 toChunk output is unchanged and now pinned by a golden test, so the
-stored embeddings stay valid.
-
-Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
+stored embeddings stay valid."
 ```
 
 ---
@@ -1291,9 +1282,7 @@ Expected: a large drop. Measured across all 2,000 recipes, the 4-recipe context 
 
 ```bash
 git add src/lib/prompt.ts src/lib/prompt.test.ts src/app/api/chat/route.ts
-git commit -m "feat: tier retrieved context, dropping step text unless asked for
-
-Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
+git commit -m "feat: tier retrieved context, dropping step text unless asked for"
 ```
 
 ---
@@ -1797,9 +1786,7 @@ git commit -m "feat: add retrieval-reuse decision over untrusted prior sources
 Also stops buildPantry storing cooking verbs as ingredients: "how long do
 I bake it?" was adding "bake" to the pantry, which read as a new ingredient
 and suppressed reuse on exactly the follow-ups Phase 2 targets. The 18 verbs
-added appear in none of the 2,000 corpus recipes' ingredient names.
-
-Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
+added appear in none of the 2,000 corpus recipes' ingredient names."
 ```
 
 ---
@@ -1918,9 +1905,7 @@ Expected: `returned 1 of 2 requested`, then the frittata row with similarity `0.
 
 ```bash
 git add src/lib/retrieval.ts
-git commit -m "feat: add fetchRecipesBySlug for reused retrieval
-
-Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
+git commit -m "feat: add fetchRecipesBySlug for reused retrieval"
 ```
 
 ---
@@ -2088,9 +2073,7 @@ git commit -m "feat: reuse prior retrieval on follow-up turns
 
 Saves the embedding request on a follow-up and fixes grounding: "how long
 do I bake it?" no longer embeds as an ingredient search. Recipe content is
-always re-fetched from Postgres, never read from the request body.
-
-Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
+always re-fetched from Postgres, never read from the request body."
 ```
 
 ---
@@ -2276,9 +2259,7 @@ Expected: every turn still answers, the cards still render ingredients and steps
 
 ```bash
 git add src/lib/chat-transport.ts src/lib/chat-transport.test.ts src/components/chat-panel.tsx
-git commit -m "perf: upload only slugs from prior turns, not full recipe JSON
-
-Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
+git commit -m "perf: upload only slugs from prior turns, not full recipe JSON"
 ```
 
 ---
@@ -2394,9 +2375,7 @@ Expected: steps 1–6 behave exactly as before, then a step 7 reporting the `SYS
 
 ```bash
 git add scripts/check.ts
-git commit -m "feat: report prompt cost and quota evidence from npm run check
-
-Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
+git commit -m "feat: report prompt cost and quota evidence from npm run check"
 ```
 
 ---
