@@ -701,11 +701,23 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 - [ ] **Step 1: Write the failing tests**
 
-Append to `src/lib/chat-config.test.ts`:
+First extend the existing import at the top of `src/lib/chat-config.test.ts` —
+merge the two new names into it rather than adding a second import statement:
 
 ```ts
-import { isExploratory, needsFullSteps } from "@/lib/chat-config";
+import {
+  DEFAULT_TEMPERATURE,
+  EXPLORATORY_TEMPERATURE,
+  isExploratory,
+  needsFullSteps,
+  PRECISE_TEMPERATURE,
+  temperatureFor,
+} from "@/lib/chat-config";
+```
 
+Then append:
+
+```ts
 describe("needsFullSteps", () => {
   it("is true for the questions that need the method verbatim", () => {
     expect(needsFullSteps("how do i fold the batter")).toBe(true);
@@ -859,6 +871,22 @@ const SPARSE: Recipe = {
   instructions: ["Simmer everything together for 25 minutes."],
 };
 
+// Steps of realistic length: the corpus averages eight instructions of roughly
+// ninety characters, and the whole point of the brief tier is what that costs.
+const REALISTIC: Recipe = {
+  ...FULL,
+  instructions: [
+    "Preheat the oven to 180C fan and line a 23cm springform tin with baking parchment.",
+    "Rinse the baby spinach thoroughly, then wilt it in a dry pan over a medium heat for two minutes.",
+    "Tip the wilted spinach into a sieve and press firmly with the back of a spoon to drive off the water.",
+    "Crack the eggs into a large bowl, season well, and beat until the yolks and whites are fully combined.",
+    "Crumble the feta into the eggs, add the drained spinach, and fold together with a spatula.",
+    "Pour the mixture into the prepared tin and level the top so it cooks evenly.",
+    "Bake for twenty minutes, until the centre is just set and no longer wobbles when you nudge the tin.",
+    "Let it stand for five minutes before releasing the tin, then slice into wedges and scatter over the dill.",
+  ],
+};
+
 // The stored `content` column and every embedding were produced by this function.
 // Changing its output would silently decouple the corpus from its vectors, so the
 // expected string is written out in full rather than derived.
@@ -911,8 +939,13 @@ describe("toBriefChunk", () => {
     expect(brief).toContain("Steps: none recorded for this recipe.");
   });
 
+  // FULL's three short steps are not representative: on that fixture the brief
+  // rendering is only ~8% smaller. The corpus mean is 64% smaller, so the saving
+  // is measured against a recipe with realistic step text.
   it("is substantially shorter than the full chunk", () => {
-    expect(toBriefChunk(FULL).length).toBeLessThan(toChunk(FULL).length * 0.75);
+    expect(toBriefChunk(REALISTIC).length).toBeLessThan(toChunk(REALISTIC).length * 0.6);
+    // Still smaller even on the unrepresentative short fixture.
+    expect(toBriefChunk(FULL).length).toBeLessThan(toChunk(FULL).length);
   });
 
   it("omits unknown fields rather than defaulting them", () => {
@@ -920,6 +953,16 @@ describe("toBriefChunk", () => {
     expect(brief).toContain("Quantities: not recorded for this recipe");
     expect(brief).not.toContain("Serves");
     expect(brief).not.toContain("Tip:");
+  });
+
+  // Rule 3: the brief tier ships no steps, so it must not tell the model to read
+  // amounts out of steps it was never given.
+  it("does not point at steps below when there are none", () => {
+    const brief = toBriefChunk(SPARSE);
+    expect(brief).not.toContain("the steps below");
+    expect(brief).toContain("which are on the recipe card");
+    // The full tier does still have its steps further down the chunk.
+    expect(toChunk(SPARSE)).toContain("the steps below are the only stated amounts");
   });
 });
 ```
@@ -964,12 +1007,20 @@ function chunkLines(r: Recipe, tier: ContextTier): string[] {
     .join(", ");
 
   // Some sources publish no measurements at all; say so rather than emitting blank amounts.
+  //
+  // The sentence has to differ by tier. On `full` the amounts really are further down
+  // this chunk; on `brief` there are no steps below, so promising them would point the
+  // model at text it was never given — exactly what ABSOLUTE RULE 3 forbids.
   const measured = r.ingredients.filter((i) => i.quantity.trim());
+  const noAmounts =
+    tier === "full"
+      ? "Quantities: not recorded for this recipe — the steps below are the only stated amounts."
+      : "Quantities: not recorded for this recipe — the only stated amounts are inside the steps, which are on the recipe card.";
   const amounts = measured.length
     ? `Ingredients with quantities: ${measured
         .map((i) => `${i.quantity} ${i.item}${i.optional ? " (optional)" : ""}`)
         .join("; ")}.`
-    : "Quantities: not recorded for this recipe — the steps below are the only stated amounts.";
+    : noAmounts;
 
   const steps =
     tier === "full"
@@ -1221,7 +1272,7 @@ Run: `npx tsc --noEmit && npm run lint && npm test`
 Expected: no errors, all tests pass.
 
 Then run `npm run dev` and send "chicken, rice and peas". Compare the `[metrics]` line's `inputTokens` against the Task 3 baseline.
-Expected: a large drop — the design projects the context block from ~1,482 to ~495 tokens, so roughly 2,240 → 1,300 for the whole prompt. Then send "what are the steps for the first one?" and confirm `"contextTier":"full"` with `inputTokens` back near the baseline. Record both numbers in the commit message.
+Expected: a large drop. Measured across all 2,000 recipes, the 4-recipe context block goes from ~1,482 to ~530 tokens (a mean brief/full ratio of 0.358), so the whole prompt lands near ~1,330 against a ~2,240 baseline. The spec's "~495" was an estimate; ~530 is the measured figure. Then send "what are the steps for the first one?" and confirm `"contextTier":"full"` with `inputTokens` back near the baseline. Record both numbers in the commit message.
 
 - [ ] **Step 8: Commit**
 
@@ -1238,7 +1289,16 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 Pure logic, tested hard, because it reads client-controlled input and decides what goes into a grounded prompt.
 
+**This task also fixes a measured blocker in `buildPantry`.** Steps 1–4 come first
+and are a prerequisite, not a nicety: `buildPantry("how long do i bake it")` currently
+yields `["egg", "spinach", "bake"]`, treating the cooking verb as an ingredient. That
+makes `hasNewPantryTerms` return true and suppresses reuse for **exactly the query the
+spec names as the bug Phase 2 exists to fix**. Without Steps 1–4, Task 9 ships a reuse
+path that almost never fires.
+
 **Files:**
+- Modify: `src/lib/ingredients.ts`
+- Create: `src/lib/ingredients.test.ts`
 - Create: `src/lib/reuse.ts`
 - Create: `src/lib/reuse.test.ts`
 
@@ -1263,8 +1323,127 @@ Pure logic, tested hard, because it reads client-controlled input and decides wh
   ```
 
   Tasks 8 and 9 import `PriorSource`, `priorSourcesFrom`, `decideReuse`.
+- Also produces: `FILLER` in `src/lib/ingredients.ts` gains 18 method verbs. No signature changes, so nothing else needs updating.
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the failing pantry test**
+
+Create `src/lib/ingredients.test.ts`:
+
+```ts
+import { describe, expect, it } from "vitest";
+
+import { buildPantry, comparePantry } from "@/lib/ingredients";
+
+const terms = (texts: string[]) => [...buildPantry(texts).keys()];
+
+describe("buildPantry", () => {
+  it("reads ingredients out of ordinary sentences", () => {
+    expect(terms(["i have eggs and spinach"])).toEqual(["egg", "spinach"]);
+  });
+
+  // The measured blocker: "bake" was being stored as though the user owned it, which
+  // made every method question look like a new ingredient and suppressed reuse.
+  it("does not treat a cooking verb as an ingredient", () => {
+    expect(terms(["i have eggs and spinach", "how long do i bake it"])).toEqual([
+      "egg",
+      "spinach",
+    ]);
+    for (const verb of ["fry", "grill", "boil", "simmer", "steam", "stir", "whisk"]) {
+      expect(terms([`should i ${verb} it`])).toEqual([]);
+    }
+  });
+
+  // These verb forms are also real ingredient names in the corpus, so filtering them
+  // would lose the user a genuine pantry item. Verified against all 2,000 recipes:
+  // "Baked beans", "hard-boiled eggs", "chopped tomatoes", "cooked rice", "fried tofu",
+  // "roast beef", "roasted peanuts", "seasoned rice vinegar", "sliced apples".
+  it("keeps verb forms that name real ingredients", () => {
+    expect(terms(["i have baked beans"])).toContain("baked beans");
+    expect(terms(["i have chopped tomatoes"])).toContain("chopped tomato");
+    expect(terms(["i have cooked rice"])).toContain("cooked rice");
+    expect(terms(["i have roast beef"])).toContain("roast beef");
+  });
+
+  // The standing constraint in ingredients.ts: a category guess is never allowed.
+  it("still never generalises an ingredient", () => {
+    expect(terms(["i have chicken"])).toEqual(["chicken"]);
+    expect(terms(["i have chicken"])).not.toContain("meat");
+  });
+});
+
+describe("comparePantry", () => {
+  // The regression that matters: filtering verbs must not stop a real ingredient
+  // from being credited. Mirrors the fixture in scripts/check.ts step 5.
+  it("still credits exactly the ingredients the user named", () => {
+    const fixture = [
+      { item: "eggs", quantity: "8 large" },
+      { item: "baby spinach", quantity: "150 g" },
+      { item: "feta cheese", quantity: "120 g" },
+      { item: "chicken stock", quantity: "200 ml" },
+    ];
+    const result = comparePantry(fixture, buildPantry(["I have eggs, spinach and feta"]));
+    expect(result.have.map((i) => i.item)).toEqual(["eggs", "baby spinach", "feta cheese"]);
+    expect(result.missingRequiredCount).toBe(1);
+  });
+});
+```
+
+- [ ] **Step 2: Run it to make sure it fails**
+
+Run: `npm test -- src/lib/ingredients.test.ts`
+Expected: FAIL on "does not treat a cooking verb as an ingredient" — the received
+array is `["egg", "spinach", "bake"]`. The other four tests should already pass.
+
+- [ ] **Step 3: Add the method verbs to `FILLER`**
+
+In `src/lib/ingredients.ts`, add these 18 entries to the `FILLER` set, with this comment:
+
+```ts
+  // Method verbs. A question like "how long do I bake it?" is not a statement about
+  // what is in someone's kitchen, but without these it added "bake" to their pantry —
+  // which then read as a new ingredient and forced a fresh search on every follow-up.
+  //
+  // This list is deliberately narrower than it could be. Each of these appears in ZERO
+  // of the 2,000 corpus recipes' ingredient names. The forms left OUT are left out on
+  // purpose, because they do name real ingredients: "baked" (Baked beans), "boiled"
+  // (hard-boiled eggs), "chopped" (chopped tomatoes), "cooked" (cooked rice), "fried"
+  // (fried tofu), "roast" (roast beef), "roasted" (roasted peanuts), "season"
+  // (Season-All salt), "seasoned" (seasoned rice vinegar), "slice" (lemon slice),
+  // "sliced" (sliced apples), "steamed" (steamed rice).
+  "bake",
+  "boil",
+  "chop",
+  "cook",
+  "fold",
+  "fry",
+  "garnish",
+  "grill",
+  "grilled",
+  "knead",
+  "marinate",
+  "marinated",
+  "reheat",
+  "simmer",
+  "simmered",
+  "steam",
+  "stir",
+  "whisk",
+```
+
+Match the surrounding entries' formatting exactly — if the existing set is written as a
+single `new Set([...])` literal with entries grouped by line, follow that layout.
+
+- [ ] **Step 4: Run the pantry tests and the live preflight**
+
+Run: `npm test -- src/lib/ingredients.test.ts`
+Expected: PASS, 5 tests.
+
+Then run: `npm run check`
+Expected: step 5 ("Pantry comparison") still passes. That step asserts against both a
+fixture and a live corpus row, and it is the guard that this change credits neither
+more nor less than before.
+
+- [ ] **Step 5: Write the failing reuse test**
 
 Create `src/lib/reuse.test.ts`:
 
@@ -1463,12 +1642,12 @@ describe("decideReuse", () => {
 });
 ```
 
-- [ ] **Step 2: Run it to make sure it fails**
+- [ ] **Step 6: Run it to make sure it fails**
 
 Run: `npm test -- src/lib/reuse.test.ts`
 Expected: FAIL — `Failed to resolve import "@/lib/reuse"`.
 
-- [ ] **Step 3: Write the implementation**
+- [ ] **Step 7: Write the implementation**
 
 Create `src/lib/reuse.ts`:
 
@@ -1590,16 +1769,22 @@ export function decideReuse({
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [ ] **Step 8: Run the whole suite**
 
-Run: `npm test -- src/lib/reuse.test.ts`
-Expected: PASS, 17 tests.
+Run: `npm test`
+Expected: PASS. `src/lib/reuse.test.ts` contributes 17 tests, and the pantry change
+from Step 3 must not have broken any earlier suite.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
-git add src/lib/reuse.ts src/lib/reuse.test.ts
+git add src/lib/ingredients.ts src/lib/ingredients.test.ts src/lib/reuse.ts src/lib/reuse.test.ts
 git commit -m "feat: add retrieval-reuse decision over untrusted prior sources
+
+Also stops buildPantry storing cooking verbs as ingredients: "how long do
+I bake it?" was adding "bake" to the pantry, which read as a new ingredient
+and suppressed reuse on exactly the follow-ups Phase 2 targets. The 18 verbs
+added appear in none of the 2,000 corpus recipes' ingredient names.
 
 Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ```
