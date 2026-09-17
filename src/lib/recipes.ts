@@ -1,5 +1,7 @@
 // Recipe types and the chunking strategy, shared by the ingest script and the chat route.
 
+import type { ContextTier } from "@/lib/metrics";
+
 export type Ingredient = {
   item: string;
   quantity: string;
@@ -40,7 +42,15 @@ export const EMBEDDING_MODEL = "gemini-embedding-001" as const;
 export const EMBEDDING_DIMENSIONS = 768 as const;
 
 // One recipe = one chunk, ingredients first because the user's query is an ingredient list.
-export function toChunk(r: Recipe): string {
+//
+// Two renderings, sharing every line but the method. `full` is what the ingest script
+// stored and embedded; `brief` drops the step text, which the system prompt forbids
+// the model to restate anyway and which the recipe card renders from its own data.
+//
+// The tier union is imported rather than redeclared, so the rendering and the metrics
+// row can never disagree about what tiers exist. It is a type-only import, erased at
+// compile time, so the ingest script gains no runtime dependency.
+function chunkLines(r: Recipe, tier: ContextTier): string[] {
   const ingredients = r.ingredients.map((i) => i.item).join(", ");
   const totalTime = r.prepTimeMinutes + r.cookTimeMinutes;
 
@@ -55,12 +65,29 @@ export function toChunk(r: Recipe): string {
     .join(", ");
 
   // Some sources publish no measurements at all; say so rather than emitting blank amounts.
+  //
+  // The sentence has to differ by tier. On `full` the amounts really are further down
+  // this chunk; on `brief` there are no steps below, so promising them would point the
+  // model at text it was never given — exactly what ABSOLUTE RULE 3 forbids.
   const measured = r.ingredients.filter((i) => i.quantity.trim());
+  const noAmounts =
+    tier === "full"
+      ? "Quantities: not recorded for this recipe — the steps below are the only stated amounts."
+      : "Quantities: not recorded for this recipe — the only stated amounts are inside the steps, which are on the recipe card.";
   const amounts = measured.length
     ? `Ingredients with quantities: ${measured
         .map((i) => `${i.quantity} ${i.item}${i.optional ? " (optional)" : ""}`)
         .join("; ")}.`
-    : "Quantities: not recorded for this recipe — the steps below are the only stated amounts.";
+    : noAmounts;
+
+  const steps =
+    tier === "full"
+      ? `Steps: ${r.instructions.map((s, i) => `${i + 1}. ${s}`).join(" ")}`
+      : r.instructions.length > 0
+        ? `Steps: shown on the recipe card (${r.instructions.length} step${
+            r.instructions.length === 1 ? "" : "s"
+          }) — not repeated here.`
+        : "Steps: none recorded for this recipe.";
 
   return [
     `Recipe: ${r.title}`,
@@ -68,9 +95,20 @@ export function toChunk(r: Recipe): string {
     `Cuisine: ${r.cuisine} (${r.country}). Tags: ${r.dietaryTags.join(", ") || "none"}.`,
     `Difficulty: ${r.difficulty}.${timing ? ` ${timing}.` : ""}`,
     amounts,
-    `Steps: ${r.instructions.map((s, i) => `${i + 1}. ${s}`).join(" ")}`,
+    steps,
     r.tips ? `Tip: ${r.tips}` : "",
-  ]
-    .filter(Boolean)
-    .join("\n");
+  ].filter(Boolean);
+}
+
+// The ingest format. Its output is what the `content` column holds and what every
+// stored embedding was computed from, so it must stay byte-identical — see the
+// golden test in recipes.test.ts.
+export function toChunk(r: Recipe): string {
+  return chunkLines(r, "full").join("\n");
+}
+
+// The same recipe with the method replaced by a pointer at the card. Roughly a third
+// of the tokens, and nothing the system prompt would have let the model say is lost.
+export function toBriefChunk(r: Recipe): string {
+  return chunkLines(r, "brief").join("\n");
 }
