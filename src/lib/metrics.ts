@@ -10,7 +10,9 @@ export type ContextTier = "brief" | "full";
 export const METRICS_PREFIX = "[metrics]";
 
 export type TurnMetrics = {
-  // Billing. Null means the model never answered (every one was out of quota).
+  // Billing. Null when no model answered (every one was out of quota) — or, more
+  // rarely, when a model did answer but its usage promise rejected, in which case
+  // modelId is still set. Read modelId, not these, to tell those two apart.
   inputTokens: number | null;
   outputTokens: number | null;
   // Tokens billed at 10% because Gemini matched a cached prefix. The number this

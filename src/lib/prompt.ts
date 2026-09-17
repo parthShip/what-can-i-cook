@@ -1,5 +1,6 @@
 import type { SourceRecipe } from "@/lib/chat-types";
-import type { MatchedRecipe } from "@/lib/recipes";
+import type { ContextTier } from "@/lib/metrics";
+import { toBriefChunk, type MatchedRecipe } from "@/lib/recipes";
 
 export const NO_MATCH_REPLY =
   "I couldn't find anything in my recipe book that matches those ingredients. Try adding a protein or a staple like rice, pasta, eggs or beans and I'll look again.";
@@ -34,6 +35,11 @@ straight from the same retrieved data you can see. Write the part a card cannot.
   "you have" / "you still need" — the card does that from the data.
 - Do not restate the ingredient list or the numbered steps unless the user asks for
   them. When they do ask, quote them verbatim from the block.
+- When a recipe in the block says its steps are "shown on the recipe card", you have
+  not been given the method. Do not describe, summarise or reconstruct it — point the
+  user at the card, and if they want the steps written out, tell them to ask and you
+  will quote them next turn. This is rule 3 applied to steps: text you were not shown
+  is text you cannot state.
 - Do not repeat times, servings or difficulty, in prose or in a table of your own:
   the card and the comparison table above it already show them, read from the data.
   Use a markdown table only for something the cards cannot show, such as weighing up
@@ -51,16 +57,24 @@ straight from the same retrieved data you can see. Write the part a card cannot.
 `.trim();
 
 // Wraps retrieved recipes in delimiters, so it is unambiguous where trusted context ends.
-export function buildContextBlock(matches: MatchedRecipe[]): string {
+//
+// `full` uses the stored `content` column, which is what was embedded. `brief` renders
+// from the same row's `metadata` and drops the step text: two-thirds of the block, and
+// text the ABSOLUTE RULES never let the model restate. Defaults to `full` so a caller
+// that has not thought about tiers gets the safe, complete rendering.
+export function buildContextBlock(
+  matches: MatchedRecipe[],
+  tier: ContextTier = "full",
+): string {
   if (matches.length === 0) {
     return "<RETRIEVED_RECIPES>\n(empty — no recipe cleared the similarity threshold)\n</RETRIEVED_RECIPES>";
   }
 
   const body = matches
-    .map(
-      (m, i) =>
-        `--- RECIPE ${i + 1} (relevance ${m.similarity.toFixed(2)}) ---\n${m.content}`,
-    )
+    .map((m, i) => {
+      const rendered = tier === "brief" ? toBriefChunk(m.metadata) : m.content;
+      return `--- RECIPE ${i + 1} (relevance ${m.similarity.toFixed(2)}) ---\n${rendered}`;
+    })
     .join("\n\n");
 
   return `<RETRIEVED_RECIPES>\n${body}\n</RETRIEVED_RECIPES>`;

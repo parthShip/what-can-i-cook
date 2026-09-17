@@ -9,7 +9,7 @@ import {
 import { google } from "@ai-sdk/google";
 import { z } from "zod";
 
-import { CHAT_MODELS, temperatureFor } from "@/lib/chat-config";
+import { CHAT_MODELS, needsFullSteps, temperatureFor } from "@/lib/chat-config";
 import type { ChatMessage, SourceRecipe } from "@/lib/chat-types";
 import { buildPantry, comparePantry } from "@/lib/ingredients";
 import {
@@ -329,6 +329,11 @@ export async function POST(req: Request) {
     // 4. Temperature comes from the question: steps sample tighter than ideas.
     const temperature = temperatureFor(query);
 
+    // Steps go in only when the question needs them. Everything else the model is
+    // allowed to say is in the brief rendering, and the card shows the method either
+    // way — so on a plain ingredient turn this is a saving, not a trade-off.
+    const contextTier: ContextTier = needsFullSteps(query) ? "full" : "brief";
+
     // 5. What the user has is read off every turn they typed, not off the answer:
     //    a pantry named three turns ago still counts for the recipe shown now.
     const pantry = buildPantry(userMessages.map(textOf));
@@ -358,15 +363,13 @@ export async function POST(req: Request) {
     });
 
     // 6. Ground the model. An empty match set still goes through; rule 2 makes it refuse.
-    const system = `${SYSTEM_PROMPT}\n\n${buildContextBlock(matches)}`;
+    const system = `${SYSTEM_PROMPT}\n\n${buildContextBlock(matches, contextTier)}`;
     const modelMessages = await convertToModelMessages(
       messages.slice(-HISTORY_MESSAGES),
     );
 
-    // Hardcoded for now: Phase 1 (tiered context) makes the tier dynamic, Phase 2
-    // (retrieval reuse) makes reuse dynamic. Logged from the start so this phase
-    // produces a baseline for the route as it behaves today.
-    const contextTier: ContextTier = "full";
+    // Hardcoded for now: Phase 2 (retrieval reuse) makes reuse dynamic. Logged from
+    // the start so this phase produces a baseline for the route as it behaves today.
     const retrievalReused = false;
     const reuseReason = "not-implemented";
 
