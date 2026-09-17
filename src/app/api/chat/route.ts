@@ -24,8 +24,13 @@ import {
   type ContextTier,
   type TurnMetrics,
 } from "@/lib/metrics";
-import { EMBEDDING_DIMENSIONS, EMBEDDING_MODEL } from "@/lib/recipes";
-import { searchRecipes } from "@/lib/retrieval";
+import {
+  EMBEDDING_DIMENSIONS,
+  EMBEDDING_MODEL,
+  type MatchedRecipe,
+} from "@/lib/recipes";
+import { fetchRecipesBySlug, searchRecipes } from "@/lib/retrieval";
+import { decideReuse, priorSourcesFrom } from "@/lib/reuse";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
 export const maxDuration = 30;
@@ -294,49 +299,89 @@ export async function POST(req: Request) {
   const startedAt = Date.now();
 
   try {
-    // 2. Embed with the ingest-time model; only the task type differs.
-    let embedding: number[];
+    // 2. What the user has is read off every turn they typed, not off the answer: a
+    //    pantry named three turns ago still counts for the recipe shown now. Built
+    //    before retrieval because the reuse decision turns on whether this turn
+    //    added anything to it.
+    const priorTexts = userMessages.slice(0, -1).map(textOf);
+    const pantryBefore = buildPantry(priorTexts);
+    const pantry = buildPantry(userMessages.map(textOf));
+
+    // 3. A follow-up about the recipes already on screen needs no new search. Skipping
+    //    it saves the embedding request outright, and grounds the answer in the recipe
+    //    the user is actually asking about rather than in whatever "how long do I bake
+    //    it?" happens to embed near.
+    const decision = decideReuse({
+      priorSources: priorSourcesFrom(messages),
+      query,
+      pantryBefore,
+      pantryAfter: pantry,
+    });
+
+    let matches: MatchedRecipe[] = [];
+    let retrievalReused = false;
+    let reuseReason: string = decision.reason;
     let embedMs: number | null = null;
-    try {
-      const embedStartedAt = Date.now();
-      embedding = await embedQuery(query, req.signal);
-      embedMs = Date.now() - embedStartedAt;
-    } catch (error) {
-      if (isAbort(error)) return new Response(null, { status: 499 });
-      if (!isExhausted(error)) throw error;
-      // Without an embedding there is no retrieval, and without retrieval there is
-      // nothing to ground an answer in. Say so as an ordinary reply — inventing a
-      // recipe here would be the one failure this app exists to prevent.
-      console.error("[chat] embedding quota exhausted:", error);
-      return streamNotice(SEARCH_UNAVAILABLE_REPLY);
-    }
-
-    // 3. Rank in Postgres and take the top matches.
-    let matches;
     let retrieveMs: number | null = null;
-    try {
-      const retrieveStartedAt = Date.now();
-      matches = await searchRecipes(getSupabaseAdmin(), embedding, {
-        threshold: MATCH_THRESHOLD,
-        limit: MATCH_COUNT,
-      });
-      retrieveMs = Date.now() - retrieveStartedAt;
-    } catch (error) {
-      console.error("[chat] retrieval failed:", error);
-      return Response.json({ error: "Recipe search failed." }, { status: 500 });
+
+    if (decision.reuse) {
+      try {
+        const reuseStartedAt = Date.now();
+        const rows = await fetchRecipesBySlug(getSupabaseAdmin(), decision.sources);
+        // A short result means a slug no longer resolves — a deleted recipe, or a
+        // crafted body. Fall through to a real search rather than answer from a
+        // partial context.
+        if (rows.length === decision.sources.length) {
+          matches = rows;
+          retrievalReused = true;
+          retrieveMs = Date.now() - reuseStartedAt;
+        } else {
+          reuseReason = "slugs-unresolved";
+        }
+      } catch (error) {
+        console.warn("[chat] slug re-fetch failed, searching instead:", error);
+        reuseReason = "refetch-failed";
+      }
     }
 
-    // 4. Temperature comes from the question: steps sample tighter than ideas.
+    if (!retrievalReused) {
+      // 4. Embed with the ingest-time model; only the task type differs.
+      let embedding: number[];
+      try {
+        const embedStartedAt = Date.now();
+        embedding = await embedQuery(query, req.signal);
+        embedMs = Date.now() - embedStartedAt;
+      } catch (error) {
+        if (isAbort(error)) return new Response(null, { status: 499 });
+        if (!isExhausted(error)) throw error;
+        // Without an embedding there is no retrieval, and without retrieval there is
+        // nothing to ground an answer in. Say so as an ordinary reply — inventing a
+        // recipe here would be the one failure this app exists to prevent.
+        console.error("[chat] embedding quota exhausted:", error);
+        return streamNotice(SEARCH_UNAVAILABLE_REPLY);
+      }
+
+      // 5. Rank in Postgres and take the top matches.
+      try {
+        const retrieveStartedAt = Date.now();
+        matches = await searchRecipes(getSupabaseAdmin(), embedding, {
+          threshold: MATCH_THRESHOLD,
+          limit: MATCH_COUNT,
+        });
+        retrieveMs = Date.now() - retrieveStartedAt;
+      } catch (error) {
+        console.error("[chat] retrieval failed:", error);
+        return Response.json({ error: "Recipe search failed." }, { status: 500 });
+      }
+    }
+
+    // 6. Temperature comes from the question: steps sample tighter than ideas.
     const temperature = temperatureFor(query);
 
     // Steps go in only when the question needs them. Everything else the model is
     // allowed to say is in the brief rendering, and the card shows the method either
     // way — so on a plain ingredient turn this is a saving, not a trade-off.
     const contextTier: ContextTier = needsFullSteps(query) ? "full" : "brief";
-
-    // 5. What the user has is read off every turn they typed, not off the answer:
-    //    a pantry named three turns ago still counts for the recipe shown now.
-    const pantry = buildPantry(userMessages.map(textOf));
 
     const sources: SourceRecipe[] = matches.map((m) => {
       const r = m.metadata;
@@ -362,18 +407,13 @@ export async function POST(req: Request) {
       };
     });
 
-    // 6. Ground the model. An empty match set still goes through; rule 2 makes it refuse.
+    // 7. Ground the model. An empty match set still goes through; rule 2 makes it refuse.
     const system = `${SYSTEM_PROMPT}\n\n${buildContextBlock(matches, contextTier)}`;
     const modelMessages = await convertToModelMessages(
       messages.slice(-HISTORY_MESSAGES),
     );
 
-    // Hardcoded for now: Phase 2 (retrieval reuse) makes reuse dynamic. Logged from
-    // the start so this phase produces a baseline for the route as it behaves today.
-    const retrievalReused = false;
-    const reuseReason = "not-implemented";
-
-    // 7. Stream, with the retrieved recipes attached up front so the UI can show its
+    // 8. Stream, with the retrieved recipes attached up front so the UI can show its
     //    sources before the first token.
     const stream = createUIMessageStream<ChatMessage>({
       onError: describeStreamError,
