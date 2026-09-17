@@ -18,11 +18,16 @@ import {
   SEARCH_UNAVAILABLE_REPLY,
   SYSTEM_PROMPT,
 } from "@/lib/prompt";
+import {
+  cachedTokensFrom,
+  logTurnMetrics,
+  type ContextTier,
+  type TurnMetrics,
+} from "@/lib/metrics";
 import { EMBEDDING_DIMENSIONS, EMBEDDING_MODEL } from "@/lib/recipes";
 import { searchRecipes } from "@/lib/retrieval";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
-export const runtime = "nodejs";
 export const maxDuration = 30;
 
 const MATCH_THRESHOLD = 0.35;
@@ -144,6 +149,30 @@ type AnswerOptions = {
   temperature: number;
   abortSignal: AbortSignal;
   sources: SourceRecipe[];
+  // Wall clock at the start of the request, so first-token latency is measured
+  // against the user's wait, not against this function's own start.
+  startedAt: number;
+};
+
+// What actually happened, for the metrics row. All-null means no model answered.
+type AnswerOutcome = {
+  modelId: string | null;
+  modelIndex: number | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  totalTokens: number | null;
+  cachedTokens: number | null;
+  firstTokenMs: number | null;
+};
+
+const NO_ANSWER: AnswerOutcome = {
+  modelId: null,
+  modelIndex: null,
+  inputTokens: null,
+  outputTokens: null,
+  totalTokens: null,
+  cachedTokens: null,
+  firstTokenMs: null,
 };
 
 // Streams the answer, moving down the model list if one is out of quota, and falling
@@ -156,7 +185,8 @@ async function streamAnswer({
   temperature,
   abortSignal,
   sources,
-}: AnswerOptions): Promise<void> {
+  startedAt,
+}: AnswerOptions): Promise<AnswerOutcome> {
   for (const [index, modelId] of CHAT_MODELS.entries()) {
     const result = streamText({
       model: google(modelId),
@@ -170,6 +200,7 @@ async function streamAnswer({
 
     let textId: string | null = null;
     let failure: unknown = null;
+    let firstTokenMs: number | null = null;
 
     try {
       // `stream` surfaces errors as parts; `textStream` would swallow them.
@@ -177,6 +208,7 @@ async function streamAnswer({
         if (part.type === "text-delta") {
           if (!textId) {
             textId = crypto.randomUUID();
+            firstTokenMs = Date.now() - startedAt;
             writer.write({ type: "text-start", id: textId });
           }
           writer.write({ type: "text-delta", id: textId, delta: part.text });
@@ -191,8 +223,32 @@ async function streamAnswer({
 
     if (textId) writer.write({ type: "text-end", id: textId });
 
-    if (!failure) return;
-    if (isAbort(failure)) return; // The reader hung up; nothing left to answer.
+    if (!failure) {
+      // `usage` and `providerMetadata` are PromiseLike on the result and are already
+      // settled once the stream is drained, so this adds no latency. Awaited only on
+      // the success path — on a failed stream they reject with the same error.
+      let usage: Awaited<typeof result.usage> | undefined;
+      let providerMetadata: Awaited<typeof result.providerMetadata>;
+      try {
+        usage = await result.usage;
+        providerMetadata = await result.providerMetadata;
+      } catch (error) {
+        // Usage is telemetry. Losing it must never lose the user their answer.
+        console.warn("[chat] usage unavailable:", error);
+      }
+
+      return {
+        modelId,
+        modelIndex: index,
+        inputTokens: usage?.inputTokens ?? null,
+        outputTokens: usage?.outputTokens ?? null,
+        totalTokens: usage?.totalTokens ?? null,
+        cachedTokens: cachedTokensFrom(usage, providerMetadata),
+        firstTokenMs,
+      };
+    }
+
+    if (isAbort(failure)) return NO_ANSWER; // The reader hung up; nothing left to answer.
     // Tokens are already on screen: restarting would splice two different answers.
     if (textId) throw failure;
     if (!isExhausted(failure)) throw failure;
@@ -210,6 +266,7 @@ async function streamAnswer({
     delta: buildFallbackAnswer(sources),
   });
   writer.write({ type: "text-end", id: textId });
+  return NO_ANSWER;
 }
 
 export async function POST(req: Request) {
@@ -234,11 +291,16 @@ export async function POST(req: Request) {
     return Response.json({ error: "No user message to answer." }, { status: 400 });
   }
 
+  const startedAt = Date.now();
+
   try {
     // 2. Embed with the ingest-time model; only the task type differs.
     let embedding: number[];
+    let embedMs: number | null = null;
     try {
+      const embedStartedAt = Date.now();
       embedding = await embedQuery(query, req.signal);
+      embedMs = Date.now() - embedStartedAt;
     } catch (error) {
       if (isAbort(error)) return new Response(null, { status: 499 });
       if (!isExhausted(error)) throw error;
@@ -251,11 +313,14 @@ export async function POST(req: Request) {
 
     // 3. Rank in Postgres and take the top matches.
     let matches;
+    let retrieveMs: number | null = null;
     try {
+      const retrieveStartedAt = Date.now();
       matches = await searchRecipes(getSupabaseAdmin(), embedding, {
         threshold: MATCH_THRESHOLD,
         limit: MATCH_COUNT,
       });
+      retrieveMs = Date.now() - retrieveStartedAt;
     } catch (error) {
       console.error("[chat] retrieval failed:", error);
       return Response.json({ error: "Recipe search failed." }, { status: 500 });
@@ -298,21 +363,45 @@ export async function POST(req: Request) {
       messages.slice(-HISTORY_MESSAGES),
     );
 
+    // Hardcoded for now: Phase 1 (tiered context) makes the tier dynamic, Phase 2
+    // (retrieval reuse) makes reuse dynamic. Logged from the start so this phase
+    // produces a baseline for the route as it behaves today.
+    const contextTier: ContextTier = "full";
+    const retrievalReused = false;
+    const reuseReason = "not-implemented";
+
     // 7. Stream, with the retrieved recipes attached up front so the UI can show its
     //    sources before the first token.
     const stream = createUIMessageStream<ChatMessage>({
       onError: describeStreamError,
       execute: async ({ writer }) => {
         writer.write({ type: "start", messageMetadata: { sources } });
-        await streamAnswer({
+        const outcome = await streamAnswer({
           writer,
           system,
           messages: modelMessages,
           temperature,
           abortSignal: req.signal,
           sources,
+          startedAt,
         });
         writer.write({ type: "finish" });
+
+        const row: TurnMetrics = {
+          ...outcome,
+          retrievalReused,
+          reuseReason,
+          contextTier,
+          candidateCount: matches.length,
+          matchCount: matches.length,
+          // The prompt's rule 2 is what actually refuses, so this is the best signal
+          // available without parsing the model's prose: nothing was retrieved.
+          refused: matches.length === 0,
+          embedMs,
+          retrieveMs,
+          totalMs: Date.now() - startedAt,
+        };
+        logTurnMetrics(row);
       },
     });
 
